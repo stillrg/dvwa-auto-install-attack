@@ -109,14 +109,14 @@ When the script finishes, it prints a summary:
 
 ```
 ==================================================
- DVWA siap digunakan
+ DVWA is ready
  URL         : http://192.168.56.101/DVWA/
- Login DVWA  : admin / password
+ Login       : admin / password
  Security    : low
 ==================================================
 ```
 
-> The script's output messages are in Indonesian.
+> Note: the script's internal messages are in Indonesian.
 
 ### After Installation
 
@@ -187,7 +187,7 @@ sudo nano /etc/apache2/sites-available/dvwa-domain.conf
 **2. Paste this config:**
 ```apache
 <VirtualHost *:80>
-    ServerName domain-anda.com
+    ServerName your-domain.com
     DocumentRoot /var/www/html/DVWA
     <Directory /var/www/html/DVWA>
         Require all granted
@@ -295,19 +295,19 @@ python dvwa_tester.py http://192.168.56.101/DVWA
 When started without arguments, the script prompts interactively:
 
 ```
-  Masukkan URL target DVWA (contoh: http://127.0.0.1): http://192.168.56.101
+  Enter DVWA target URL (e.g. http://127.0.0.1): http://192.168.56.101
   Username [admin]:
   Password [password]:
 
-  Menu Serangan:
+  Attack Menu:
     1. Command Injection
     2. SQL Injection
     3. Cross-Site Scripting (XSS)
     4. File Inclusion (LFI)
-    5. Semua modul
-    0. Keluar
+    5. All modules
+    0. Exit
 
-  Pilihan [5]:
+  Choice [5]:
 ```
 
 ---

