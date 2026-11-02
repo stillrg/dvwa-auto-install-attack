@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🛡️ DVWA Toolkit
+# 🛡️ DVWA Auto Install & Attack
 
 **A complete toolkit for setting up and testing [DVWA](https://github.com/digininja/DVWA) (Damn Vulnerable Web Application).**
 
@@ -18,7 +18,7 @@
 ## 📦 Repository Structure
 
 ```
-dvwa-toolkit/
+dvwa-auto-install-attack/
 ├── auto-install/       # Bash script to install & configure DVWA on Ubuntu
 │   └── install-dvwa.sh
 └── auto-attack/        # Python 3 tool to automate security tests against DVWA
@@ -100,8 +100,8 @@ This repository contains two tools that work together:
 
 ```bash
 sudo apt update && sudo apt install -y git
-git clone https://github.com/stillrg/dvwa-toolkit.git
-cd dvwa-toolkit/auto-install
+git clone https://github.com/stillrg/dvwa-auto-install-attack.git
+cd dvwa-auto-install-attack/auto-install
 sudo bash install-dvwa.sh
 ```
 
