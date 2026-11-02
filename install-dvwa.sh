@@ -4,14 +4,16 @@
 #
 # Opsi (lewat environment variable):
 #   DVWA_SECURITY=low|medium|high|impossible   level keamanan awal (default: low)
-#   DVWA_ALLOWED_NETS="..."                    IP/subnet yang boleh masuk tanpa password
+#   DVWA_PASSWORD=0|1                          aktifkan password akses (default: 0)
+#   DVWA_ALLOWED_NETS="..."                    jika DVWA_PASSWORD=1, IP/subnet yang
+#                                              boleh masuk tanpa password
 #
-# IP lain tetap bisa mengakses, tetapi harus memasukkan password yang dibuat
-# otomatis dan ditampilkan di akhir instalasi.
+# Secara default DVWA terbuka dari IP mana pun, tanpa password akses.
 set -euo pipefail
 
 DVWA_DIR=/var/www/html/DVWA
 DVWA_SECURITY="${DVWA_SECURITY:-low}"
+DVWA_PASSWORD="${DVWA_PASSWORD:-0}"
 DVWA_ALLOWED_NETS="${DVWA_ALLOWED_NETS:-127.0.0.1 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16}"
 BASE_URL=http://127.0.0.1/DVWA
 GATE_USER=dvwa
@@ -24,6 +26,7 @@ die()  { printf '\033[1;31m[x] %s\033[0m\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "Jalankan dengan sudo: sudo bash $0"
 case "$DVWA_SECURITY" in low|medium|high|impossible) ;; *) die "DVWA_SECURITY tidak valid: $DVWA_SECURITY" ;; esac
+case "$DVWA_PASSWORD" in 0|1) ;; *) die "DVWA_PASSWORD harus 0 atau 1, bukan: $DVWA_PASSWORD" ;; esac
 . /etc/os-release
 [ "${ID:-}" = ubuntu ] || warn "Skrip ini dibuat untuk Ubuntu, terdeteksi: ${PRETTY_NAME:-tidak diketahui}"
 
@@ -86,27 +89,32 @@ export COMPOSER_ALLOW_SUPERUSER=1
   warn "composer gagal: lab API tidak akan berfungsi, lab lainnya tetap normal"
 
 log "Mengonfigurasi Apache dan PHP"
-# Password dipertahankan saat skrip dijalankan ulang.
-if [ ! -s "$GATE_PASS_FILE" ]; then
-  (umask 077; openssl rand -hex 12 >"$GATE_PASS_FILE")
-fi
-GATE_PASS="$(cat "$GATE_PASS_FILE")"
-printf '%s\n' "$GATE_PASS" | htpasswd -ciB "$GATE_FILE" "$GATE_USER" 2>/dev/null
-chown root:www-data "$GATE_FILE"
-chmod 640 "$GATE_FILE"
-
-# Jaringan di DVWA_ALLOWED_NETS langsung masuk, IP lain harus memakai password.
-# Setting PHP yang rentan hanya berlaku untuk folder DVWA, bukan seluruh server.
-cat >/etc/apache2/conf-available/dvwa.conf <<APACHE
-<Directory $DVWA_DIR>
-    AllowOverride All
-    AuthType Basic
-    AuthName "DVWA Lab"
+if [ "$DVWA_PASSWORD" = 1 ]; then
+  # Password dipertahankan selama opsi ini tetap aktif saat skrip dijalankan ulang.
+  if [ ! -s "$GATE_PASS_FILE" ]; then
+    (umask 077; openssl rand -hex 12 >"$GATE_PASS_FILE")
+  fi
+  GATE_PASS="$(cat "$GATE_PASS_FILE")"
+  printf '%s\n' "$GATE_PASS" | htpasswd -ciB "$GATE_FILE" "$GATE_USER" 2>/dev/null
+  chown root:www-data "$GATE_FILE"
+  chmod 640 "$GATE_FILE"
+  ACCESS_RULES="    AuthType Basic
+    AuthName \"DVWA Lab\"
     AuthUserFile $GATE_FILE
     <RequireAny>
         Require ip $DVWA_ALLOWED_NETS
         Require valid-user
-    </RequireAny>
+    </RequireAny>"
+else
+  rm -f "$GATE_FILE" "$GATE_PASS_FILE"
+  ACCESS_RULES="    Require all granted"
+fi
+
+# Setting PHP yang rentan hanya berlaku untuk folder DVWA, bukan seluruh server.
+cat >/etc/apache2/conf-available/dvwa.conf <<APACHE
+<Directory $DVWA_DIR>
+    AllowOverride All
+$ACCESS_RULES
     php_admin_flag allow_url_fopen On
     php_admin_flag allow_url_include On
     php_admin_flag display_errors On
@@ -152,14 +160,22 @@ cat <<DONE
  URL         : http://${IP:-127.0.0.1}/DVWA/
  Login DVWA  : admin / password
  Security    : $DVWA_SECURITY
-
- Jika browser meminta password (akses dari IP publik):
- Username    : $GATE_USER
- Password    : $GATE_PASS
- Tanpa password dari: $DVWA_ALLOWED_NETS
 ==================================================
-Password bisa dilihat lagi dengan: sudo cat $GATE_PASS_FILE
 Jika VM punya IP publik, URL di atas mungkin menampilkan IP internal;
-ganti dengan IP publik VM. DVWA sengaja dibuat rentan: jangan simpan
-data penting di VM ini dan matikan setelah selesai dipakai.
+ganti dengan IP publik VM.
 DONE
+
+if [ "$DVWA_PASSWORD" = 1 ]; then
+  cat <<DONE
+
+Password akses aktif untuk IP di luar: $DVWA_ALLOWED_NETS
+ Username : $GATE_USER
+ Password : $GATE_PASS
+Password bisa dilihat lagi dengan: sudo cat $GATE_PASS_FILE
+DONE
+else
+  warn "DVWA terbuka dari IP mana pun tanpa password akses."
+  warn "Jika VM punya IP publik, siapa pun bisa masuk dan menjalankan perintah di server."
+  warn "Untuk mengaktifkan password: sudo DVWA_PASSWORD=1 bash $0"
+fi
+echo "DVWA sengaja dibuat rentan: jangan simpan data penting di VM ini dan matikan setelah selesai dipakai."
