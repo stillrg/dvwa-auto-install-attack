@@ -4,13 +4,19 @@
 #
 # Opsi (lewat environment variable):
 #   DVWA_SECURITY=low|medium|high|impossible   level keamanan awal (default: low)
-#   DVWA_ALLOWED_NETS="..."                    IP/subnet yang boleh mengakses
+#   DVWA_ALLOWED_NETS="..."                    IP/subnet yang boleh masuk tanpa password
+#
+# IP lain tetap bisa mengakses, tetapi harus memasukkan password yang dibuat
+# otomatis dan ditampilkan di akhir instalasi.
 set -euo pipefail
 
 DVWA_DIR=/var/www/html/DVWA
 DVWA_SECURITY="${DVWA_SECURITY:-low}"
 DVWA_ALLOWED_NETS="${DVWA_ALLOWED_NETS:-127.0.0.1 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16}"
 BASE_URL=http://127.0.0.1/DVWA
+GATE_USER=dvwa
+GATE_FILE=/etc/apache2/dvwa-gate.htpasswd
+GATE_PASS_FILE=/root/.dvwa-gate-password
 
 log()  { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m[!] %s\033[0m\n' "$*" >&2; }
@@ -34,7 +40,7 @@ svc() { # svc start|restart nama
 log "Menginstal paket"
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
 apt-get update -qq
-apt-get install -y -qq apache2 mariadb-server mariadb-client php php-mysqli php-gd php-xml \
+apt-get install -y -qq apache2 apache2-utils mariadb-server mariadb-client php php-mysqli php-gd php-xml \
   php-mbstring php-curl libapache2-mod-php git curl unzip composer openssl >/dev/null
 
 log "Mengunduh DVWA ke $DVWA_DIR"
@@ -80,18 +86,34 @@ export COMPOSER_ALLOW_SUPERUSER=1
   warn "composer gagal: lab API tidak akan berfungsi, lab lainnya tetap normal"
 
 log "Mengonfigurasi Apache dan PHP"
+# Password dipertahankan saat skrip dijalankan ulang.
+if [ ! -s "$GATE_PASS_FILE" ]; then
+  (umask 077; openssl rand -hex 12 >"$GATE_PASS_FILE")
+fi
+GATE_PASS="$(cat "$GATE_PASS_FILE")"
+printf '%s\n' "$GATE_PASS" | htpasswd -ciB "$GATE_FILE" "$GATE_USER" 2>/dev/null
+chown root:www-data "$GATE_FILE"
+chmod 640 "$GATE_FILE"
+
+# Jaringan di DVWA_ALLOWED_NETS langsung masuk, IP lain harus memakai password.
 # Setting PHP yang rentan hanya berlaku untuk folder DVWA, bukan seluruh server.
 cat >/etc/apache2/conf-available/dvwa.conf <<APACHE
 <Directory $DVWA_DIR>
     AllowOverride All
-    Require ip $DVWA_ALLOWED_NETS
+    AuthType Basic
+    AuthName "DVWA Lab"
+    AuthUserFile $GATE_FILE
+    <RequireAny>
+        Require ip $DVWA_ALLOWED_NETS
+        Require valid-user
+    </RequireAny>
     php_admin_flag allow_url_fopen On
     php_admin_flag allow_url_include On
     php_admin_flag display_errors On
     php_admin_flag display_startup_errors On
 </Directory>
 APACHE
-a2enmod -q rewrite
+a2enmod -q rewrite auth_basic authn_file authz_user
 a2enconf -q dvwa
 apache2ctl configtest >/dev/null 2>&1 || die "Konfigurasi Apache tidak valid, cek: apache2ctl configtest"
 svc restart apache2
@@ -127,10 +149,17 @@ cat <<DONE
 
 ==================================================
  DVWA siap digunakan
- URL      : http://${IP:-127.0.0.1}/DVWA/
- Login    : admin / password
- Security : $DVWA_SECURITY
- Akses    : $DVWA_ALLOWED_NETS
+ URL         : http://${IP:-127.0.0.1}/DVWA/
+ Login DVWA  : admin / password
+ Security    : $DVWA_SECURITY
+
+ Jika browser meminta password (akses dari IP publik):
+ Username    : $GATE_USER
+ Password    : $GATE_PASS
+ Tanpa password dari: $DVWA_ALLOWED_NETS
 ==================================================
-Jangan jalankan DVWA di server yang terhubung langsung ke internet.
+Password bisa dilihat lagi dengan: sudo cat $GATE_PASS_FILE
+Jika VM punya IP publik, URL di atas mungkin menampilkan IP internal;
+ganti dengan IP publik VM. DVWA sengaja dibuat rentan: jangan simpan
+data penting di VM ini dan matikan setelah selesai dipakai.
 DONE
